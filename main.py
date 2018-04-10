@@ -1,10 +1,12 @@
 from keras.preprocessing.text import Tokenizer
 from keras.models import model_from_json
+from keras.preprocessing import sequence
 import pandas as pd
 import numpy as np
 import twitter
 from birdy.twitter import StreamClient
 
+# Setup the tokenizer so the computer has knowledge of words
 def setUpTokenizer():
     print('Setting Up Tokenizer...')
 
@@ -23,6 +25,7 @@ def setUpTokenizer():
     print('Setup Complete!')
     return tokenizer
 
+# Load the saved model that was trained from twitterSentimentCNN.py
 def loadModel():
     print('Loading Prediction Model...')
     # Load json and create model
@@ -40,6 +43,7 @@ def loadModel():
 
     return loadedModel
 
+# Setup the connection to the Twitter web api, can get previously tweeted tweets or stream live tweets
 def setUpTwitterConnection(stream=True):
     api = twitter.Api(consumer_key='wZFb3lcFyezEJuIGUMUvtZGwJ',
                   consumer_secret='xBiVivqFgEUpwrDSvT0JWCIOUssgktQtpqN41tsM1q9ErnAO3s',
@@ -57,11 +61,12 @@ def setUpTwitterConnection(stream=True):
         return api
 
 def main():
-    # tokenizer = setUpTokenizer()
-    # model = loadModel()
+    tokenizer = setUpTokenizer()
+    model = loadModel()
     twitterApi = setUpTwitterConnection()
 
     while True:
+        # Get relevant user input
         print('Twitter sentiment analizer ready, enter \'quit\' in topic selection to exit')
         topic = str(input('Select topic: '))
         if topic == 'quit':
@@ -71,11 +76,39 @@ def main():
         resource = twitterApi.stream.statuses.filter.post(track=topic)
 
         index = 0
+        tweets = []
+        # Keep getting live tweets on 'topic' until the users chosen tweet number is reached
         for data in resource.stream():
             if index >= numTweets:
                 break
-            if data.lang == 'en':
-                index = index + 1
-                print(str(index) + '/' + str(numTweets))
+            if 'lang' in data:
+                if data.lang == 'en':
+                    index = index + 1
+                    print(str(index) + '/' + str(numTweets))
+                    tweets.append(data.text)
+
+        # Prepare the gathered tweets for the CNN to predict, i.e turn the tweets into vectors
+        tweets = tokenizer.texts_to_sequences(tweets)
+        tweets = sequence.pad_sequences(tweets, maxlen=45)
+
+        # Get the models predictions for each of the tweets
+        predictions = model.predict(np.array(tweets))
+
+        # Analize the predictions based on threshold values for negative, neutral, and positive sentiment
+        negativePredictions = 0
+        neutralPredictions = 0
+        positivePredictions = 0
+        for prediction in predictions:
+            if prediction[0] < 0.50:
+                negativePredictions = negativePredictions + 1
+            elif prediction[0] >= 0.50 and prediction[0] <= 0.65:
+                neutralPredictions = neutralPredictions + 1
+            else:
+                positivePredictions = positivePredictions + 1
+
+        print('Results:')
+        print(str((negativePredictions/numTweets) * 100) + '% Negative Sentiment')
+        print(str((neutralPredictions/numTweets) * 100) + '% Neutral Sentiment')
+        print(str((positivePredictions/numTweets) * 100) + '% Positive Sentiment')
 
 main()
